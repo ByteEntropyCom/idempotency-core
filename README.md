@@ -1,5 +1,12 @@
 # Distributed Idempotency Core
 
+![Java](https://img.shields.io/badge/Java-98.1%25-007396?style=flat&logo=java)
+![Lua](https://img.shields.io/badge/Lua-1.9%25-000080?style=flat&logo=lua)
+![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+![GitHub last commit](https://img.shields.io/github/last-commit/ByteEntropyCom/idempotency-core)
+![GitHub stars](https://img.shields.io/github/stars/ByteEntropyCom/idempotency-core)
+![Repository size](https://img.shields.io/github/repo-size/ByteEntropyCom/idempotency-core)
+
 A production-grade, Spring Boot-based idempotency engine that ensures **Exactly-Once** execution for critical business logic (like payments) using Redis, Lua scripting, and Spring AOP.
 
 ## 🚀 Key Features
