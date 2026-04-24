@@ -97,12 +97,6 @@ Status	Meaning	Action for Client
 409 Conflict	Key/Data mismatch	Critical error: Do not reuse this key for this data.
 500 Error	System Failure	Lock is released; safe to retry immediately.
 
-## 📂 Project Components
-
-@Idempotent: Custom annotation for marking methods.
-IdempotencyAspect: The core logic handler (hashing, SpEL, flow control).
-IdempotencyStore: Interface for storage abstraction.
-RedisIdempotencyStore: Distributed implementation using atomic Lua scripts.
-InMemoryIdempotencyStore: Local implementation using ConcurrentHashMap.putIfAbsent().
-IdempotencyExceptionHandler: REST Advice to format error responses.
+## Licence
+MIT Licence
 
