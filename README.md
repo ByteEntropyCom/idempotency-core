@@ -6,6 +6,7 @@
 ![GitHub last commit](https://img.shields.io/github/last-commit/ByteEntropyCom/idempotency-core)
 ![GitHub stars](https://img.shields.io/github/stars/ByteEntropyCom/idempotency-core)
 ![Repository size](https://img.shields.io/github/repo-size/ByteEntropyCom/idempotency-core)
+[![Build and Test](https://github.com/ByteEntropyCom/idempotency-core/actions/workflows/build.yml/badge.svg)](https://github.com/ByteEntropyCom/idempotency-core/actions/workflows/build.yml)
 
 A production-grade, Spring Boot-based idempotency engine that ensures **Exactly-Once** execution for critical business logic (like payments) using Redis, Lua scripting, and Spring AOP.
 
