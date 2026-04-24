@@ -40,6 +40,7 @@ idempotency.default-ttl=3600
 spring.data.redis.host=your-redis-server
 spring.data.redis.port=6379
 spring.data.redis.password=your-password
+```
 
 ### 2. Usage
 
