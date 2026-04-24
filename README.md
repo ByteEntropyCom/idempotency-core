@@ -70,18 +70,24 @@ public class PaymentService {
 
 ### Test 1: Success Replay (200 OK)
 
-```Action: Send same request twice.
-Result: Second request returns the exact same response with the original timestamp, without executing logic again.```
+```
+Action: Send same request twice.
+Result: Second request returns the exact same response with the original timestamp, without executing logic again.
+```
 
 ### Test 2: Concurrent Lock (425 Too Early)
 
-```Action: Send Request B while Request A is still sleeping (processing).
-Result: Request B receives {"status": 425, "message": "Request is already in progress."}.```
+```
+Action: Send Request B while Request A is still sleeping (processing).
+Result: Request B receives {"status": 425, "message": "Request is already in progress."}.
+```
 
 ### Test 3: Payload Mismatch (409 Conflict)
 
-```Action: Use Key-A for a $10 payment, then use Key-A again for a $500 payment.
-Result: System detects the data change and returns 409 Conflict to prevent fraud/errors.```
+```
+Action: Use Key-A for a $10 payment, then use Key-A again for a $500 payment.
+Result: System detects the data change and returns 409 Conflict to prevent fraud/errors.
+```
 
 
 ## 🚦 HTTP Status Code Mapping
