@@ -47,7 +47,8 @@ spring.data.redis.password=your-password
 Annotate your service methods. Use SpEL (Spring Expression Language) to define the key based on method arguments.
 
 Java
-@Service
+
+```@Service
 public class PaymentService {
 
     // Uses global TTL from properties
@@ -61,42 +62,40 @@ public class PaymentService {
     public Response handleOrder(OrderRequest request) {
         return new Response("Order Processed");
     }
-}
-🧪 Testing Scenarios (Verified)
-Test 1: Success Replay (200 OK)
+}```
 
-Action: Send same request twice.
-Result: Second request returns the exact same response with the original timestamp, without executing logic again.
 
-Test 2: Concurrent Lock (425 Too Early)
+## 🧪 Testing Scenarios (Verified)
 
-Action: Send Request B while Request A is still sleeping (processing).
-Result: Request B receives {"status": 425, "message": "Request is already in progress."}.
+### Test 1: Success Replay (200 OK)
 
-Test 3: Payload Mismatch (409 Conflict)
+```Action: Send same request twice.
+Result: Second request returns the exact same response with the original timestamp, without executing logic again.```
 
-Action: Use Key-A for a $10 payment, then use Key-A again for a $500 payment.
-Result: System detects the data change and returns 409 Conflict to prevent fraud/errors.
+### Test 2: Concurrent Lock (425 Too Early)
 
-🚦 HTTP Status Code Mapping
+```Action: Send Request B while Request A is still sleeping (processing).
+Result: Request B receives {"status": 425, "message": "Request is already in progress."}.```
+
+### Test 3: Payload Mismatch (409 Conflict)
+
+```Action: Use Key-A for a $10 payment, then use Key-A again for a $500 payment.
+Result: System detects the data change and returns 409 Conflict to prevent fraud/errors.```
+
+
+## 🚦 HTTP Status Code Mapping
 Status	Meaning	Action for Client
 200 OK	Success / Cached Result	Proceed normally.
 425 Too Early	Request in progress	Show spinner, retry in 2-5 seconds.
 409 Conflict	Key/Data mismatch	Critical error: Do not reuse this key for this data.
 500 Error	System Failure	Lock is released; safe to retry immediately.
-📂 Project Components
+
+## 📂 Project Components
+
 @Idempotent: Custom annotation for marking methods.
-
 IdempotencyAspect: The core logic handler (hashing, SpEL, flow control).
-
 IdempotencyStore: Interface for storage abstraction.
-
 RedisIdempotencyStore: Distributed implementation using atomic Lua scripts.
-
 InMemoryIdempotencyStore: Local implementation using ConcurrentHashMap.putIfAbsent().
-
 IdempotencyExceptionHandler: REST Advice to format error responses.
 
-
-### Final Note
-This module is now **fully verified** via both manual `curl` testing and automated JUnit 5 tests. It is ready for integration into a high-concurrency microservices environment.
