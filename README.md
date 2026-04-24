@@ -2,6 +2,7 @@
 
 ![Java](https://img.shields.io/badge/Java-98.1%25-007396?style=flat&logo=java)
 ![Lua](https://img.shields.io/badge/Lua-1.9%25-000080?style=flat&logo=lua)
+[![Language Composition](https://img.shields.io/static/v1?label=Languages&message=Java%2098.1%25%20%7C%20Lua%201.9%25&color=success)](https://github.com/ByteEntropyCom/idempotency-core)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 ![GitHub last commit](https://img.shields.io/github/last-commit/ByteEntropyCom/idempotency-core)
 ![GitHub stars](https://img.shields.io/github/stars/ByteEntropyCom/idempotency-core)
