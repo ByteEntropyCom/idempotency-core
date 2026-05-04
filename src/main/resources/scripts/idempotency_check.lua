@@ -1,17 +1,16 @@
--- scripts/idempotency_check.lua
 local key = KEYS[1]
 local recordValue = ARGV[1]
 local ttl = tonumber(ARGV[2])
 
--- Try to get existing record
+-- Atomic Check and Set
 local current = redis.call('GET', key)
 
 if current then
-    -- Record exists, return it to Java
+    -- Key exists: Return the existing JSON string
     return current
 else
-    -- No record, set the "PROCESSING" status with TTL
+    -- Key missing: Reserve it with PROCESSING status
     redis.call('SET', key, recordValue, 'EX', ttl)
-    -- Return nil to signify we are the first ones here
+    -- Return nil so Java knows it's the first execution
     return nil
 end

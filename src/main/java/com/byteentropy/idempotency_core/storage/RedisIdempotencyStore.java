@@ -3,10 +3,10 @@ package com.byteentropy.idempotency_core.storage;
 import com.byteentropy.idempotency_core.model.IdempotencyRecord;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.stereotype.Repository;
+import org.springframework.util.Assert;
 
 import java.util.Collections;
 import java.util.Optional;
@@ -16,12 +16,12 @@ import java.util.concurrent.TimeUnit;
 @ConditionalOnProperty(name = "idempotency.storage.type", havingValue = "redis", matchIfMissing = true)
 public class RedisIdempotencyStore implements IdempotencyStore {
 
-    private final RedisTemplate<String, Object> redisTemplate;
-    private final DefaultRedisScript<Object> idempotencyScript;
+    private final StringRedisTemplate redisTemplate; // Switched to String Template for safety
+    private final DefaultRedisScript<String> idempotencyScript;
     private final ObjectMapper objectMapper;
 
-    public RedisIdempotencyStore(RedisTemplate<String, Object> redisTemplate, 
-                                 DefaultRedisScript<Object> idempotencyScript,
+    public RedisIdempotencyStore(StringRedisTemplate redisTemplate, 
+                                 DefaultRedisScript<String> idempotencyScript,
                                  ObjectMapper objectMapper) {
         this.redisTemplate = redisTemplate;
         this.idempotencyScript = idempotencyScript;
@@ -29,54 +29,58 @@ public class RedisIdempotencyStore implements IdempotencyStore {
     }
 
     @Override
-    public Optional<IdempotencyRecord> get(String key) {
-        Object val = redisTemplate.opsForValue().get(genKey(key));
+    public Optional<IdempotencyRecord> get(String namespace, String key) {
+        String val = redisTemplate.opsForValue().get(genKey(namespace, key));
         if (val == null) return Optional.empty();
-        return Optional.of(objectMapper.convertValue(val, IdempotencyRecord.class));
-    }
-
-    @Override
-    public void save(String key, IdempotencyRecord record, long ttl) {
-        redisTemplate.opsForValue().set(genKey(key), record, ttl, TimeUnit.SECONDS);
-    }
-
-    @Override
-    public void delete(String key) {
-        redisTemplate.delete(genKey(key));
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public Object executeLua(String key, IdempotencyRecord record, long ttl) {
         try {
-            // Serialize to JSON string for ARGV[1]
+            return Optional.of(objectMapper.readValue(val, IdempotencyRecord.class));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public void save(String namespace, String key, IdempotencyRecord record, long ttl) {
+        try {
+            String json = objectMapper.writeValueAsString(record);
+            redisTemplate.opsForValue().set(genKey(namespace, key), json, ttl, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new RuntimeException("Serialization failed", e);
+        }
+    }
+
+    @Override
+    public void delete(String namespace, String key) {
+        redisTemplate.delete(genKey(namespace, key));
+    }
+
+    @Override
+    public Object executeLua(String namespace, String key, IdempotencyRecord record, long ttl) {
+        try {
             String jsonRecord = objectMapper.writeValueAsString(record);
-
-            // To avoid the "Raw Type" warning and the "Incompatible Types" error:
-            // We use the String serializer but cast it to RedisSerializer<Object>
-            // using a typed intermediate to keep the compiler happy.
-            RedisSerializer<String> stringSerializer = RedisSerializer.string();
-            RedisSerializer<Object> resultSerializer = (RedisSerializer<Object>) (RedisSerializer<?>) stringSerializer;
-
-            Object result = redisTemplate.execute(
+            
+            String result = redisTemplate.execute(
                 idempotencyScript,
-                redisTemplate.getStringSerializer(), // argsSerializer
-                resultSerializer,                    // resultSerializer (now matches Script<Object>)
-                Collections.singletonList(genKey(key)),
+                Collections.singletonList(genKey(namespace, key)),
                 jsonRecord,
                 String.valueOf(ttl)
             );
 
             if (result == null) return null;
-
-            // Result from Lua is the stringified JSON; convert back to POJO
-            return objectMapper.readValue(result.toString(), IdempotencyRecord.class);
+            return objectMapper.readValue(result, IdempotencyRecord.class);
         } catch (Exception e) {
             throw new RuntimeException("Idempotency storage failure during Lua execution", e);
         }
     }
 
-    private String genKey(String key) {
-        return "idemp:" + key;
+    @Override
+    public ObjectMapper getObjectMapper() {
+        return this.objectMapper;
+    }
+
+    private String genKey(String namespace, String key) {
+        Assert.hasText(namespace, "Namespace required");
+        Assert.hasText(key, "Key required");
+        return String.format("idemp:%s:%s", namespace, key);
     }
 }

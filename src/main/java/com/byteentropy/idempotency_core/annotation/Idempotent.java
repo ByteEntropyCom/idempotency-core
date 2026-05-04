@@ -8,8 +8,15 @@ public @interface Idempotent {
     /** SpEL expression for the key */
     String key();
 
-    /** * Time to live in seconds. 
-     * Default is -1, which triggers the use of the global property.
+    /** 
+     * Categorize keys (e.g., "payments", "orders"). 
+     * Prevents key collisions between different services.
+     */
+    String namespace() default "default";
+
+    /** 
+     * Time to live in seconds. 
+     * Default is -1, triggers the use of global property.
      */
     long ttl() default -1;
 }

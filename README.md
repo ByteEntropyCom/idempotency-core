@@ -19,6 +19,15 @@ A production-grade, Spring Boot-based idempotency engine that ensures **Exactly-
 - **Hybrid Storage:** Supports **Redis** for production and **In-Memory** (ConcurrentHashMap) for local development.
 - **Smart TTL Management:** Global default TTL via properties file, with granular method-level overrides.
 - **Self-Healing:** Automatically releases locks/keys if the business logic throws an exception, allowing for immediate retries.
+- **Automatic Ghost Lock Recovery:** Detects and clears "stale" processing locks if a worker crashes, ensuring the system never stays stuck.
+
+---
+
+## 💡 Best Practices & Limitations
+
+- **Avoid Large Payloads:** Do not use `@Idempotent` on methods that accept large binary data (e.g., File uploads). The payload hashing works best with DTOs and primitives.
+- **Return Clean Data:** Ensure your method returns a POJO, Map, or String. Avoid returning Spring-specific wrappers like `ResponseEntity<?>` directly in the annotated method, as serialization might fail.
+- **Transaction Order:** This library is configured with `HIGHEST_PRECEDENCE`. It will execute and validate the idempotency key *before* any `@Transactional` boundaries are opened.
 
 ---
 

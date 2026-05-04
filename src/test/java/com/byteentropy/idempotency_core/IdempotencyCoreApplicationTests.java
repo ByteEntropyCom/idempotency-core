@@ -1,140 +1,178 @@
 package com.byteentropy.idempotency_core;
 
+import com.byteentropy.idempotency_core.api.IdempotencyRequest;
 import com.byteentropy.idempotency_core.annotation.Idempotent;
 import com.byteentropy.idempotency_core.model.IdempotencyRecord;
 import com.byteentropy.idempotency_core.model.IdempotencyStatus;
 import com.byteentropy.idempotency_core.storage.IdempotencyStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.util.DigestUtils;
+import org.springframework.test.web.servlet.MockMvc;
 
-import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+    "idempotency.storage.type=memory",
+    "idempotency.default-ttl=60",
+    "idempotency.processing-timeout-ms=2000" // Reduced for faster recovery testing
+})
+@AutoConfigureMockMvc
 class IdempotencyCoreApplicationTests {
 
-    @Autowired
-    private TestService testService;
-
-    @MockitoBean
-    private IdempotencyStore idempotencyStore;
+    @Autowired private MockMvc mockMvc;
+    @Autowired private ObjectMapper objectMapper;
+    @Autowired private TestService testService;
+    @Autowired private IdempotencyStore store;
 
     @BeforeEach
     void setup() {
-        testService.reset();
+        testService.resetCounter();
     }
 
-    private String calculateHash(Object... args) {
-        StringBuilder sb = new StringBuilder();
-        for (Object arg : args) sb.append(arg != null ? arg.toString() : "null");
-        return DigestUtils.md5DigestAsHex(sb.toString().getBytes(StandardCharsets.UTF_8));
-    }
+    // --- EXISTING CORE TESTS ---
 
     @Test
-void testCondition1_SuccessReplay() {
-    String key = "order-123";
-    String hash = calculateHash(key);
-    String expectedResponse = "Processed " + key; // Match what the service returns
-    
-    // Setup: Second call is a hit (returns completed record with the SAME response)
-    IdempotencyRecord completed = new IdempotencyRecord(
-            IdempotencyStatus.COMPLETED, 
-            expectedResponse, // Updated this from "Success"
-            hash, 
-            1000L
-    );
-    
-    Mockito.when(idempotencyStore.executeLua(anyString(), any(), anyLong()))
-           .thenReturn(null)      // First call (miss)
-           .thenReturn(completed); // Second call (hit)
+    void testRestApiReservation() throws Exception {
+        String key = "api-key";
+        IdempotencyRequest request = new IdempotencyRequest(key, "default", Map.of("cmd", "run"), 60);
 
-    String res1 = testService.doWork(key);
-    String res2 = testService.doWork(key);
-
-    // Now they will both be "Processed order-123"
-    assertEquals(res1, res2);
-    assertEquals(expectedResponse, res2);
-    assertEquals(1, testService.getInvocationCount(), "Business logic must only run once");
-}
-
-    @Test
-    void testCondition2_PayloadMismatch() {
-        String key = "order-123";
+        mockMvc.perform(post("/api/v1/idempotency/check")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
         
-        // Setup: Record exists but has a DIFFERENT hash (e.g., different amount)
-        IdempotencyRecord existingWithDifferentData = new IdempotencyRecord(
-                IdempotencyStatus.COMPLETED, "Success", "different_hash_here", 1000L);
-
-        Mockito.when(idempotencyStore.executeLua(anyString(), any(), anyLong()))
-               .thenReturn(existingWithDifferentData);
-
-        // Expect IllegalStateException due to hash mismatch
-        Exception exception = assertThrows(IllegalStateException.class, () -> {
-            testService.doWork(key);
-        });
-
-        assertTrue(exception.getMessage().contains("conflict"));
-        assertEquals(0, testService.getInvocationCount(), "Logic should NOT run on conflict");
+        assertTrue(store.get("default", key).isPresent());
     }
 
     @Test
-    void testCondition3_ConcurrentRequest_StillProcessing() {
-        String key = "order-race";
-        String hash = calculateHash(key);
-        
-        // Setup: Record exists and status is PROCESSING
-        IdempotencyRecord processingRecord = new IdempotencyRecord(
-                IdempotencyStatus.PROCESSING, null, hash, 1000L);
+    void testConcurrency() throws InterruptedException {
+        int threads = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger errorCount = new AtomicInteger(0);
 
-        Mockito.when(idempotencyStore.executeLua(anyString(), any(), anyLong()))
-               .thenReturn(processingRecord);
+        for (int i = 0; i < threads; i++) {
+            executor.execute(() -> {
+                try {
+                    latch.await();
+                    testService.execute("concurrency-key");
+                    successCount.incrementAndGet();
+                } catch (Exception e) {
+                    errorCount.incrementAndGet();
+                }
+            });
+        }
 
-        // Expect RuntimeException for "Still processing"
-        Exception exception = assertThrows(RuntimeException.class, () -> {
-            testService.doWork(key);
-        });
+        latch.countDown();
+        executor.shutdown();
+        executor.awaitTermination(5, TimeUnit.SECONDS);
 
-        assertTrue(exception.getMessage().contains("progress") || exception.getMessage().contains("processing"));
-        assertEquals(0, testService.getInvocationCount());
+        assertEquals(1, successCount.get());
+        assertEquals(9, errorCount.get());
     }
 
+    // --- PENDING "SAD PATH" TESTS ---
+
+    /**
+     * Case 1: Data Integrity (Payload Mismatch)
+     * Verifies that the same key with DIFFERENT data is rejected.
+     */
     @Test
-    void testCondition4_SelfHealing_OnFailure() {
-        String key = "order-fail";
+    void testPayloadMismatchRejection() {
+        String key = "integrity-key";
         
-        Mockito.when(idempotencyStore.executeLua(anyString(), any(), anyLong())).thenReturn(null);
-
-        // Service throws error
-        assertThrows(RuntimeException.class, () -> testService.doWorkAndFail(key));
-
-        // Verify the store.delete(key) was called so the user can retry
-        Mockito.verify(idempotencyStore, Mockito.times(1)).delete(eq(key));
-    }
-}
-
-@Service
-class TestService {
-    private int invocationCount = 0;
-
-    @Idempotent(key = "#id")
-    public String doWork(String id) {
-        invocationCount++;
-        return "Processed " + id;
+        // First call with Payload A
+        testService.executeWithPayload(key, "Payload-A");
+        
+        // Second call with Payload B should trigger IllegalStateException (Conflict)
+        assertThrows(IllegalStateException.class, () -> 
+            testService.executeWithPayload(key, "Payload-B")
+        );
     }
 
-    @Idempotent(key = "#id")
-    public String doWorkAndFail(String id) {
-        throw new RuntimeException("DB Error");
+    /**
+     * Case 2: Resilience (Method Failure)
+     * Verifies that if the business logic crashes, the lock is released immediately.
+     */
+    @Test
+    void testLockReleaseOnMethodFailure() {
+        String key = "failure-key";
+        
+        // Trigger a method that fails
+        assertThrows(RuntimeException.class, () -> testService.executeAndFail(key));
+        
+        // The lock should be GONE. A second call should succeed.
+        assertDoesNotThrow(() -> testService.execute(key));
+        assertEquals(1, testService.getExecutionCount());
     }
 
-    public void reset() { invocationCount = 0; }
-    public int getInvocationCount() { return invocationCount; }
+    /**
+     * Case 3: Auto-Healing (Ghost Lock Recovery)
+     * Verifies that if a server died without releasing a lock, it heals after timeout.
+     */
+    @Test
+    void testGhostLockRecovery() throws InterruptedException {
+        String key = "ghost-key";
+        String ns = "test-service";
+
+        // Manually inject a "stuck" processing record into storage
+        IdempotencyRecord stuckRecord = IdempotencyRecord.builder()
+                .status(IdempotencyStatus.PROCESSING)
+                .requestHash("some-hash")
+                .timestamp(System.currentTimeMillis())
+                .build();
+        store.save(ns, key, stuckRecord, 60);
+
+        // Immediate call should fail (it's still "processing")
+        assertThrows(RuntimeException.class, () -> testService.execute(key));
+
+        // Wait for processing-timeout-ms (set to 2000ms in properties)
+        Thread.sleep(2100);
+
+        // Next call should detect the "Ghost Lock", clear it, and succeed
+        assertDoesNotThrow(() -> testService.execute(key));
+        assertEquals(1, testService.getExecutionCount());
+    }
+
+    // --- TEST SUPPORT SERVICE ---
+
+    @Service
+    public static class TestService {
+        private final AtomicInteger executionCount = new AtomicInteger(0);
+        public void resetCounter() { executionCount.set(0); }
+        public int getExecutionCount() { return executionCount.get(); }
+
+        @Idempotent(key = "#id", namespace = "test-service")
+        public String execute(String id) {
+            try { Thread.sleep(100); } catch (InterruptedException ignored) {}
+            executionCount.incrementAndGet();
+            return "Done";
+        }
+
+        @Idempotent(key = "#id", namespace = "test-service")
+        public String executeWithPayload(String id, String data) {
+            return "DataProcessed";
+        }
+
+        @Idempotent(key = "#id", namespace = "test-service")
+        public String executeAndFail(String id) {
+            throw new RuntimeException("Simulated Business Logic Failure");
+        }
+    }
 }
