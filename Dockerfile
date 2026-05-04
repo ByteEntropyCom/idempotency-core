@@ -22,7 +22,7 @@ USER spring:spring
 # Copy the compiled jar - assuming standard artifact naming
 # If your artifact name is dynamic, consider using: 
 # COPY --from=build /app/target/idempotency-core-*.jar app.jar
-COPY --from=build /app/target/idempotency-core.jar app.jar
+COPY --from=build /app/target/*.jar app.jar
 
 # Container-aware memory settings
 ENV JAVA_OPTS="-XX:+UseParallelGC -XX:MaxRAMPercentage=75.0"
