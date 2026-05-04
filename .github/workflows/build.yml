@@ -77,7 +77,7 @@ jobs:
         severity: 'CRITICAL,HIGH'
 
     - name: Archive Production JAR
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: idempotency-core-jar
         path: target/*.jar
