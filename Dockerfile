@@ -2,29 +2,29 @@
 FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /app
 
-# Leverage Docker cache for dependencies
+# Cache dependencies
 COPY pom.xml .
 RUN mvn dependency:go-offline -B
 
-# Copy source code and build the jar
+# Build the versioned jar
 COPY src ./src
-# Using -Drelease to ensure a clean, optimized build
 RUN mvn clean package -DskipTests
 
 # Stage 2: Create the production image
 FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
-# Security: Create and use non-root user
+# Dynamically set by CI/CD pipeline
+ARG APP_VERSION
+
+# Create a non-root user
 RUN addgroup --system spring && adduser --system spring --ingroup spring
 USER spring:spring
 
-# Copy the compiled jar - assuming standard artifact naming
-# If your artifact name is dynamic, consider using: 
-# COPY --from=build /app/target/idempotency-core-*.jar app.jar
-COPY --from=build /app/target/*.jar app.jar
+# Copy the specific versioned jar and rename it to app.jar for internal use
+COPY --from=build /app/target/idempotency-core-${APP_VERSION}.jar app.jar
 
-# Container-aware memory settings
+# Configuration for memory optimization
 ENV JAVA_OPTS="-XX:+UseParallelGC -XX:MaxRAMPercentage=75.0"
 
 EXPOSE 8080

@@ -1,9 +1,9 @@
 name: Manual Build and Docker Verify
 
 on:
-  workflow_dispatch: # Allows you to trigger this manually from the GitHub UI
+  workflow_dispatch:
   push:
-    branches: [ main ] # Still runs on push to protect the main branch
+    branches: [ main ]
 
 jobs:
   quality-and-build:
@@ -30,8 +30,14 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
         cache: 'maven'
+
+    - name: Extract Maven Project Version
+      id: project_version
+      run: |
+        VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
     
-    - name: Run All Tests (Unit & Concurrency)
+    - name: Run All Tests
       run: mvn test -B
       env:
         SPRING_REDIS_HOST: localhost
@@ -43,14 +49,19 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Build Docker Image (Local Verify Only)
+    - name: Build Docker Image (Verify Only)
       uses: docker/build-push-action@v5
       with:
         context: .
-        load: true # This loads the image into the local docker daemon instead of pushing it
-        tags: idempotency-core:latest
+        load: true
+        # Dynamically tag the image with the version from pom.xml
+        tags: idempotency-core:${{ steps.project_version.outputs.VERSION }}
+        build-args: |
+          APP_VERSION=${{ steps.project_version.outputs.VERSION }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
     - name: Confirm Image Build
-      run: docker images | grep idempotency-core
+      run: |
+        echo "Successfully built image version: ${{ steps.project_version.outputs.VERSION }}"
+        docker images | grep idempotency-core
