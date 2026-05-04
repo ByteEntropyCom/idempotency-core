@@ -65,3 +65,20 @@ jobs:
       run: |
         echo "Successfully built image version: ${{ steps.project_version.outputs.VERSION }}"
         docker images | grep idempotency-core
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'idempotency-core:${{ steps.project_version.outputs.VERSION }}'
+        format: 'table'
+        exit-code: '1' # Fails build if high/critical vulnerabilities are found
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: 'CRITICAL,HIGH'
+
+    - name: Archive Production JAR
+      uses: actions/upload-artifact@v3
+      with:
+        name: idempotency-core-jar
+        path: target/*.jar
+        retention-days: 5    

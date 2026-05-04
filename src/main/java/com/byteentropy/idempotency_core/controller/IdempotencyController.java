@@ -4,14 +4,17 @@ import com.byteentropy.idempotency_core.model.*;
 import com.byteentropy.idempotency_core.api.IdempotencyRequest;
 import com.byteentropy.idempotency_core.api.IdempotencyResponse;
 import com.byteentropy.idempotency_core.storage.IdempotencyStore;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.DigestUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.Objects;
 
 @RestController
@@ -19,25 +22,26 @@ import java.util.Objects;
 public class IdempotencyController {
 
     private final IdempotencyStore store;
-    private final ObjectMapper objectMapper;
+    private final ObjectMapper hashMapper;
 
     public IdempotencyController(IdempotencyStore store, ObjectMapper objectMapper) {
         this.store = store;
-        this.objectMapper = objectMapper;
+        // Use a consistent, safe mapper for hashing
+        this.hashMapper = objectMapper.copy()
+                .disable(SerializationFeature.FAIL_ON_EMPTY_BEANS)
+                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     }
 
     @PostMapping("/check")
     public ResponseEntity<IdempotencyResponse> check(@RequestBody IdempotencyRequest request) throws Exception {
         
-        // STRICT VALIDATION: Reject request if namespace is missing
         if (!StringUtils.hasText(request.namespace())) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new IdempotencyResponse(request.key(), null, null, "Namespace is required", System.currentTimeMillis()));
         }
         
         String ns = request.namespace();
-        String payloadJson = objectMapper.writeValueAsString(request.payload());
-        String currentHash = DigestUtils.md5DigestAsHex(payloadJson.getBytes(StandardCharsets.UTF_8));
+        String currentHash = generateHash(request.payload());
 
         IdempotencyRecord initial = IdempotencyRecord.builder()
                 .status(IdempotencyStatus.PROCESSING)
@@ -49,13 +53,17 @@ public class IdempotencyController {
 
         if (result != null) {
             IdempotencyRecord existing = (IdempotencyRecord) result;
+            
+            // Critical: Must compare SHA-256 hashes
             if (!Objects.equals(existing.getRequestHash(), currentHash)) {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(new IdempotencyResponse(request.key(), null, null, "Payload mismatch", System.currentTimeMillis()));
             }
+            
             if (existing.getStatus() == IdempotencyStatus.COMPLETED) {
                 return ResponseEntity.ok(IdempotencyResponse.of(request.key(), existing, "Success (Cached)"));
             }
+            
             return ResponseEntity.status(HttpStatus.TOO_EARLY)
                 .body(IdempotencyResponse.of(request.key(), existing, "Processing in progress"));
         }
@@ -73,8 +81,7 @@ public class IdempotencyController {
         }
 
         String ns = request.namespace();
-        String payloadJson = objectMapper.writeValueAsString(request.payload());
-        String hash = DigestUtils.md5DigestAsHex(payloadJson.getBytes(StandardCharsets.UTF_8));
+        String hash = generateHash(request.payload());
 
         IdempotencyRecord completed = IdempotencyRecord.builder()
                 .status(IdempotencyStatus.COMPLETED)
@@ -85,6 +92,19 @@ public class IdempotencyController {
 
         store.save(ns, request.key(), completed, request.ttl());
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Internal helper to generate SHA-256 hash consistent with IdempotencyAspect
+     */
+    private String generateHash(Object payload) throws Exception {
+        if (payload == null) return "null-payload";
+        
+        String json = hashMapper.writeValueAsString(payload);
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] encodedHash = digest.digest(json.getBytes(StandardCharsets.UTF_8));
+        
+        return HexFormat.of().formatHex(encodedHash);
     }
 
     public record CompletionRequest(IdempotencyRequest request, Object resultData) {}

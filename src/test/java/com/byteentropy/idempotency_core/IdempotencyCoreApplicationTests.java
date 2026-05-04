@@ -175,4 +175,18 @@ class IdempotencyCoreApplicationTests {
             throw new RuntimeException("Simulated Business Logic Failure");
         }
     }
+
+    @Test
+    void testCachedResultTypeSafety() {
+        String key = "type-safety-key";
+        
+        // First call executes logic and returns a String
+        String firstResult = testService.execute(key);
+        
+        // Second call should return the EXACT SAME string from cache
+        Object cachedResult = testService.execute(key);
+        
+        assertEquals(firstResult, cachedResult);
+        assertInstanceOf(String.class, cachedResult);
+    }
 }
