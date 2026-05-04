@@ -14,8 +14,8 @@
 
     <properties>
         <java.version>21</java.version>
-        <tomcat.version>10.1.54</tomcat.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-framework.version>6.2.11</spring-framework.version>
     </properties>
 
     <dependencies>
